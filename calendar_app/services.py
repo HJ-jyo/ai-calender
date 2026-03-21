@@ -1,9 +1,12 @@
-import google.generativeai as genai
 import json
 import os
 import traceback
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
+
+# ⚠️ 新しい公式ライブラリ ⚠️
+from google import genai
+from google.genai import types
 
 load_dotenv()
 
@@ -11,7 +14,7 @@ class GeminiService:
     @staticmethod
     def analyze_schedule(file_data, content_type):
         print("\n" + "="*50)
-        print("[DEBUG-PROBE] Gemini 解析スタート！")
+        print("[DEBUG-PROBE] 🌟 新生Gemini 解析スタート！")
         print(f"[DEBUG-PROBE] MIME={content_type}")
         
         api_key = os.getenv('GEMINI_API_KEY')
@@ -19,13 +22,12 @@ class GeminiService:
             print("[DEBUG-PROBE] ❌ エラー: GEMINI_API_KEY がありません！")
             raise ValueError("API KEY MISSING")
 
-        genai.configure(api_key=api_key)
-        
-        # ライブラリ更新で確実に動く無料モデル
-        model_name = 'gemini-1.5-flash'
-        
         try:
-            model = genai.GenerativeModel(model_name)
+            # 新しいクライアントの初期化
+            client = genai.Client(api_key=api_key)
+            
+            # 💡 【重要】確実に無料で使える安定モデル 💡
+            model_name = 'gemini-1.5-flash'
             
             prompt = """
             画像から全ての予定を抽出し、以下のJSON配列形式のみで出力してください。
@@ -33,18 +35,27 @@ class GeminiService:
             ※期間予定は1日ずつ分割すること。余計な文字は一切不要。
             """
             
-            response = model.generate_content(
-                [prompt, {'mime_type': content_type, 'data': file_data}],
-                generation_config={"response_mime_type": "application/json"}
-            )
-            print(f"[DEBUG-PROBE] ✅ Gemini({model_name})から応答を受信！")
+            # 画像データを新しい仕様に合わせる
+            document = types.Part.from_bytes(data=file_data, mime_type=content_type)
             
-            try:
-                raw_text = response.text
-                print(f"\n--- [DEBUG-PROBE: AI 生データ (RAW TEXT)] ---\n{raw_text}\n--------------------------------------------\n")
-            except ValueError as ve:
-                print(f"[DEBUG-PROBE] ❌ AIテキスト取得エラー: {ve}")
-                return []
+            # JSON出力を強制してパースエラーを防ぐ
+            config = types.GenerateContentConfig(
+                response_mime_type="application/json",
+            )
+            
+            print(f"[DEBUG-PROBE] 無料モデル({model_name}) にリクエスト送信中...")
+            
+            # AIへリクエスト送信
+            response = client.models.generate_content(
+                model=model_name,
+                contents=[prompt, document],
+                config=config,
+            )
+            
+            print("[DEBUG-PROBE] ✅ Geminiから応答を受信！")
+            
+            raw_text = response.text
+            print(f"\n--- [DEBUG-PROBE: AI 生データ] ---\n{raw_text}\n----------------------------------\n")
 
             clean_text = raw_text.strip()
             clean_text = clean_text.replace("```json", "")
@@ -67,6 +78,7 @@ class GeminiService:
                     start_dt = datetime.fromisoformat(ev['start'])
                     end_dt = datetime.fromisoformat(ev['end'])
                     
+                    # 期間予定を1日ずつバラすロジック
                     if start_dt.date() < end_dt.date():
                         current_date = start_dt.date()
                         while current_date <= end_dt.date():
