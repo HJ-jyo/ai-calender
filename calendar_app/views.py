@@ -11,18 +11,13 @@ from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 from .services import GeminiService
 
-# 本番環境のリダイレクト先
+# 本番環境のリダイレクト先（Google Cloud Consoleの登録と完全に一致させること）
 REDIRECT_URI = 'https://smart-calender.duckdns.org/oauth2callback/'
 SCOPES = ['https://www.googleapis.com/auth/calendar']
 
 def index(request):
     creds_data = request.session.get('google_credentials')
     is_authenticated = bool(creds_data and 'token' in creds_data)
-    
-    print(f"\n--- [DEBUG: INDEX] ---")
-    print(f"Session ID: {request.session.session_key}")
-    print(f"Authenticated: {is_authenticated}")
-    print("----------------------\n")
     
     return render(request, 'calendar_app/index.html', {
         'is_authenticated': is_authenticated
@@ -36,7 +31,7 @@ def authorize(request):
     flow = Flow.from_client_secrets_file(
         client_config_path,
         scopes=SCOPES,
-        redirect_uri=REDIRECT_URI # 修正済み
+        redirect_uri=REDIRECT_URI
     )
     authorization_url, state = flow.authorization_url(access_type='offline', prompt='consent')
     
@@ -55,7 +50,7 @@ def oauth2callback(request):
             client_config_path, 
             scopes=SCOPES, 
             state=state,
-            redirect_uri=REDIRECT_URI # 修正済み
+            redirect_uri=REDIRECT_URI
         )
         flow.fetch_token(
             authorization_response=request.build_absolute_uri(),
@@ -90,13 +85,22 @@ def upload_file(request):
         all_events = []
         for f in request.FILES.getlist('files'):
             try:
+                print(f"DEBUG: Processing file {f.name}...")
                 res = GeminiService.analyze_schedule(f.read(), f.content_type)
+                
                 if res:
-                    if isinstance(res, list): all_events.extend(res)
-                    else: all_events.append(res)
-            except: continue
+                    if isinstance(res, list): 
+                        all_events.extend(res)
+                    else: 
+                        all_events.append(res)
+                else:
+                    print(f"DEBUG: Gemini returned empty result for {f.name}")
+            except Exception as e:
+                print(f"ERROR analyzing {f.name}: {e}")
+                continue
+                
         return JsonResponse({'status': 'success', 'events': all_events})
-    return JsonResponse({'status': 'error'})
+    return JsonResponse({'status': 'error', 'message': 'Invalid request'})
 
 @csrf_exempt
 def register_events(request):
@@ -109,14 +113,17 @@ def register_events(request):
         service = build('calendar', 'v3', credentials=creds)
         
         for ev in data.get('events', []):
+            # JS側から送られてきた時間の末尾(Z)を消し、純粋な文字列にする
             start_dt = ev['start_time'].replace('Z', '')
             end_dt = ev['end_time'].replace('Z', '')
 
+            # Googleカレンダーに「日本時間(Asia/Tokyo)」として強制的に登録する
             service.events().insert(calendarId='primary', body={
                 'summary': ev['summary'],
                 'start': {'dateTime': start_dt, 'timeZone': 'Asia/Tokyo'},
                 'end': {'dateTime': end_dt, 'timeZone': 'Asia/Tokyo'},
             }).execute()
+            
         return JsonResponse({'status': 'success'})
     except Exception as e:
         print(f"Sync Error: {traceback.format_exc()}")

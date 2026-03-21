@@ -17,65 +17,59 @@ class GeminiService:
 
         genai.configure(api_key=api_key)
         
-        # あなたの環境で動くことが証明された最新モデルを指定
-        model_name = 'models/gemini-1.5-flash' # 安全のため広く普及している名称に調整
+        # 安定性と速度に優れた最新モデル
+        model_name = 'gemini-1.5-flash'
         
         try:
             model = genai.GenerativeModel(model_name)
             
+            # AIへの絶対的な指示書（プロンプト）
             prompt = """
-            画像から全ての予定（授業、行事、期間予定）を抽出し、以下のJSON形式のリストで返してください。
+            あなたは優秀なスケジュール解析アシスタントです。
+            提供された画像（シフト表、行事予定表、カレンダーなど）から全ての予定を抽出し、以下のJSON配列形式で出力してください。
             
-            【重要ルール】
-            1. 連日の予定（例：24〜28日）であっても、必ず **1日単位に切り分けて（バラして）** 出力してください。
-               （例：24日、25日、26日... と別々のオブジェクトにする）
-            2. 縦軸の時間と横軸の日付（月・日・曜日）を正確に組み合わせてください。
-            3. 現在は 2026年3月21日 です。画像内の日付には 2026年 を補完してください。
+            【絶対ルール】
+            1. 「○日〜○日」のような期間予定が含まれている場合でも、必ず **1日単位に分割（バラして）** 出力してください。（例：24日〜26日の予定は、24日、25日、26日の3つの独立したデータにする）
+            2. 年の記載がない場合は、現在の年である「2026年」として処理してください。
+            3. 時間の記載がない予定（終日予定など）は、開始を "09:00:00"、終了を "10:00:00" に設定してください。
+            4. 出力は純粋なJSONデータのみとし、Markdown表記（```json など）や説明文は一切含めないでください。
             
-            【出力形式】
+            【JSONデータ構造の例】
             [
                 {
                     "title": "予定の名称",
-                    "start": "2026-03-24T09:00",
-                    "end": "2026-03-24T18:00",
-                    "location": "",
-                    "description": ""
+                    "start": "2026-03-24T09:00:00",
+                    "end": "2026-03-24T18:00:00",
+                    "location": "場所（不明な場合は空文字）",
+                    "description": "備考や詳細（不明な場合は空文字）"
                 }
             ]
-            JSON以外の余計なテキストは一切含めないでください。秒数は不要です。
             """
 
-            response = model.generate_content([
-                prompt,
-                {'mime_type': content_type, 'data': file_data}
-            ])
+            # JSON形式での出力をAIに強制する（これが空データを防ぐ最大の鍵）
+            response = model.generate_content(
+                [prompt, {'mime_type': content_type, 'data': file_data}],
+                generation_config={"response_mime_type": "application/json"}
+            )
 
-            raw_text = response.text
-            print(f"DEBUG AI Response: {raw_text}")
+            raw_text = response.text.strip()
+            print(f"\n--- [DEBUG: AI Raw Output] ---\n{raw_text}\n------------------------------\n")
 
-            start_index = raw_text.find('[')
-            end_index = raw_text.rfind(']') + 1
-            if start_index == -1:
-                start_index = raw_text.find('{')
-                end_index = raw_text.rfind('}') + 1
-            
-            if start_index == -1:
-                raise ValueError(f"AIがJSONを返しませんでした。")
-
-            json_text = raw_text[start_index:end_index]
-            events = json.loads(json_text)
+            # AIの返答をPythonのリストに変換
+            events = json.loads(raw_text)
             
             if not isinstance(events, list):
                 events = [events]
 
-            # 【保険ロジック】AIが期間で返してきた場合、Python側で1日単位にバラす
             final_events = []
+            
+            # 【保険ロジック】AIがルールを無視して期間で返してきた場合、Python側で強制的に1日単位にバラす
             for ev in events:
                 try:
                     start_dt = datetime.fromisoformat(ev['start'])
                     end_dt = datetime.fromisoformat(ev['end'])
                     
-                    if start_dt.date() != end_dt.date():
+                    if start_dt.date() < end_dt.date():
                         current_date = start_dt.date()
                         while current_date <= end_dt.date():
                             new_start = datetime.combine(current_date, start_dt.time())
@@ -92,12 +86,13 @@ class GeminiService:
                     else:
                         final_events.append(ev)
                 except Exception as parse_error:
-                    print(f"予定パースエラー: {parse_error}, データ: {ev}")
+                    print(f"日付パースエラー（スキップせずそのまま追加します）: {parse_error}")
                     final_events.append(ev)
 
             return final_events
 
         except Exception as e:
-            print("=== GEMINI API ERROR DETAIL ===")
+            print("\n=== GEMINI API ERROR DETAIL ===")
             print(traceback.format_exc())
+            print("===============================\n")
             raise e
