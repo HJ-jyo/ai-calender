@@ -18,7 +18,7 @@ class GeminiService:
         genai.configure(api_key=api_key)
         
         # あなたの環境で動くことが証明された最新モデルを指定
-        model_name = 'models/gemini-3-flash-preview'
+        model_name = 'models/gemini-1.5-flash' # 安全のため広く普及している名称に調整
         
         try:
             model = genai.GenerativeModel(model_name)
@@ -65,7 +65,6 @@ class GeminiService:
             json_text = raw_text[start_index:end_index]
             events = json.loads(json_text)
             
-            # リストでなければリストにする
             if not isinstance(events, list):
                 events = [events]
 
@@ -73,15 +72,12 @@ class GeminiService:
             final_events = []
             for ev in events:
                 try:
-                    # ISO 8601形式（YYYY-MM-DDTHH:MM）をパース
                     start_dt = datetime.fromisoformat(ev['start'])
                     end_dt = datetime.fromisoformat(ev['end'])
                     
-                    # 開始日と終了日が異なる（期間予定）場合
                     if start_dt.date() != end_dt.date():
                         current_date = start_dt.date()
                         while current_date <= end_dt.date():
-                            # 各日の予定を作成
                             new_start = datetime.combine(current_date, start_dt.time())
                             new_end = datetime.combine(current_date, end_dt.time())
                             
@@ -94,11 +90,9 @@ class GeminiService:
                             })
                             current_date += timedelta(days=1)
                     else:
-                        # 1日の予定ならそのまま追加
                         final_events.append(ev)
                 except Exception as parse_error:
-                    print(f"予定パースエラー（スキップします）: {parse_error}, データ: {ev}")
-                    # パースに失敗した場合はそのまま追加（フロント側でエラー表示させるため）
+                    print(f"予定パースエラー: {parse_error}, データ: {ev}")
                     final_events.append(ev)
 
             return final_events
