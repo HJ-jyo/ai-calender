@@ -39,7 +39,7 @@ def authorize(request):
     flow = Flow.from_client_secrets_file(
         client_config_path,
         scopes=SCOPES,
-        redirect_uri='http://localhost:8000/oauth2callback/'
+        redirect_uri='https://smart-calender.duckdns.org/oauth2callback/'
     )
     authorization_url, state = flow.authorization_url(access_type='offline', prompt='consent')
     
@@ -60,7 +60,7 @@ def oauth2callback(request):
             client_config_path, 
             scopes=SCOPES, 
             state=state,
-            redirect_uri='http://localhost:8000/oauth2callback/'
+            redirect_uri='https://smart-calender.duckdns.org/oauth2callback/'
         )
         # 【修正ポイント】code_verifier を明示的に渡してトークンを確定させる
         flow.fetch_token(
