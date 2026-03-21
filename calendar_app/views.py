@@ -31,7 +31,7 @@ def index(request):
     })
 
 def privacy(request):
-    return render(request, 'calender_app/privacy.html')
+    return render(request, 'calendar_app/privacy.html')
 
 def authorize(request):
     """Google認証開始"""
