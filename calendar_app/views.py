@@ -30,6 +30,9 @@ def index(request):
         'is_authenticated': is_authenticated
     })
 
+def privacy(request):
+    return render(request, 'calender_app/privacy.html')
+
 def authorize(request):
     """Google認証開始"""
     client_config_path = os.path.join(settings.BASE_DIR, 'client_secret.json')
