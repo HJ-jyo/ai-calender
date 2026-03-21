@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Smart calendar | AI 予定表同期ツール</title>
+    <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js'></script>
+    <style>
+        :root { 
+            --primary: #4285F4; --success: #34a853; --error: #d93025; 
+            --bg: #ffffff; --surface: #f8f9fa; --border: #e0e0e0;
+            --text-main: #1a1a1a; --text-sub: #5f6368;
+            --radius-lg: 24px; --radius-md: 12px;
+        }
+
+        * { box-sizing: border-box; outline: none; -webkit-tap-highlight-color: transparent; box-shadow: none !important; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
+            background: var(--bg); margin: 0; color: var(--text-main); line-height: 1.6; font-size: 16px; 
+        }
+        
+        header { 
+            height: 64px; padding: 0 6%; border-bottom: 1px solid var(--border); 
+            display: flex; justify-content: space-between; align-items: center; 
+            background: #fff; position: sticky; top: 0; z-index: 100; 
+        }
+        .logo { font-size: 1.3rem; font-weight: 800; color: var(--primary); text-decoration: none; }
+        .btn-outline { font-size: 0.85rem; font-weight: 600; padding: 8px 18px; border-radius: 50px; border: 1px solid var(--border); background: #fff; cursor: pointer; text-decoration: none; color: inherit; }
+
+        .container { max-width: 800px; margin: 0 auto; padding: 60px 20px; text-align: center; }
+        h1 { font-size: 2.2rem; font-weight: 900; letter-spacing: -0.05em; margin-bottom: 15px; }
+        .description { color: var(--text-sub); font-size: 1.1rem; margin-bottom: 45px; }
+
+        .info-panel { 
+            background: var(--surface); padding: 35px; border-radius: var(--radius-lg); 
+            border: 1px solid var(--border); text-align: left; margin-bottom: 40px; 
+        }
+        .info-panel h2 { font-size: 1.1rem; margin-top: 0; margin-bottom: 15px; border-left: 4px solid var(--primary); padding-left: 15px; }
+        .info-panel ul { margin: 0; padding-left: 20px; color: #444; font-size: 0.95rem; }
+        .info-panel li { margin-bottom: 12px; }
+
+        .btn-auth { 
+            background: var(--primary); color: white; padding: 20px 60px; 
+            border-radius: var(--radius-md); font-weight: 700; font-size: 1.2rem; 
+            border: none; cursor: pointer; transition: opacity 0.2s; display: inline-block; text-decoration: none; 
+        }
+
+        /* アップロードエリア：PC用スタイル */
+        .upload-section { 
+            background: var(--surface); border: 2px dashed var(--border); 
+            border-radius: var(--radius-lg); padding: 80px 20px; cursor: pointer; 
+            min-height: 480px; display: flex; flex-direction: column; align-items: center; justify-content: center; 
+            transition: all 0.2s ease;
+        }
+        .upload-section:hover { border-color: var(--primary); background: #f0f4ff; }
+        .upload-section.dragover { border-color: var(--success); background: #eafff0; } /* ドロップ時は緑に */
+
+        .upload-title { font-size: 1.3rem; font-weight: 900; margin-bottom: 15px; color: var(--text-main); }
+        .upload-subtitle { color: var(--text-sub); margin-bottom: 40px; font-size: 1rem; }
+
+        /* モーダル */
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.4); z-index: 2000; justify-content: center; align-items: center; backdrop-filter: blur(4px); }
+        .modal-content { background: #fff; width: 100%; height: 100%; display: flex; flex-direction: column; overflow: hidden; }
+        @media (min-width: 769px) { .modal-content { width: 90%; max-width: 1200px; height: 90vh; border-radius: var(--radius-lg); border: 1px solid var(--border); } }
+
+        .modal-header { padding: 20px 30px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+        .modal-body { flex: 1; padding: 20px; overflow-y: auto; }
+        
+        .modal-footer { padding: 20px 30px; border-top: 1px solid var(--border); display: flex; gap: 15px; background: #fafafa; }
+        /* ボタン比率は 1:1 */
+        .btn-modal { flex: 1; padding: 18px; border-radius: 12px; font-weight: 700; cursor: pointer; font-size: 1rem; border: none; }
+        .btn-cancel { background: #eee; color: #666; }
+        .btn-submit { background: var(--success); color: #fff; }
+
+        .date-group { margin-top: 25px; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: #fff; }
+        .date-header { background: var(--surface); padding: 12px 20px; font-weight: 800; border-bottom: 1px solid var(--border); display: flex; align-items: center; }
+        .event-item { display: flex; align-items: center; padding: 15px 20px; border-bottom: 1px solid #eee; font-size: 0.95rem; }
+        
+        input[type="checkbox"] { width: 20px; height: 20px; margin-right: 15px; cursor: pointer; accent-color: var(--primary); }
+
+        .loader { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.9); z-index: 5000; flex-direction: column; justify-content: center; align-items: center; }
+        .spinner { border: 4px solid #f3f3f3; border-top: 4px solid var(--primary); border-radius: 50%; width: 50px; height: 50px; animation: spin 0.8s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* スマホ用（レスポンシブ）修正 */
+        @media (max-width: 600px) {
+            h1 { font-size: 1.8rem; }
+            .container { padding: 40px 15px; }
+            .btn-auth { width: 100%; padding: 18px; font-size: 1.1rem; }
+            
+            /* スマホ時はフッターボタンを縦並びにし、同期を上、キャンセルを下にする */
+            .modal-footer { flex-direction: column; }
+            .btn-modal { width: 100%; font-size: 1.1rem; }
+            .btn-submit { order: -1; } /* 同期ボタンを一番上に */
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <a href="/" class="logo">Smart Cal</a>
+    {% if is_authenticated %}
+        <a href="/logout/" class="btn-outline">ログアウト</a>
+    {% endif %}
+</header>
+
+<div class="loader" id="loader"><div class="spinner"></div><p style="margin-top:15px; font-weight: 600;">解析中</p></div>
+
+<main class="container">
+    {% if not is_authenticated %}
+        <h1>予定表を、一瞬でカレンダーへ。</h1>
+        <p class="description">学校のプリント、シフト表、スクリーンショットをAIが解析し、Googleカレンダーへ直接同期します。</p>
+        
+        <div class="info-panel">
+            <h2>Googleカレンダーとの連携について</h2>
+            <ul>
+                <li><strong>同期機能:</strong> 解析した予定をカレンダーへ直接登録するため、認証が必要です。</li>
+                <li><strong>データの保護:</strong> 既存の予定を読み取ったり公開することはありません。</li>
+                <li><strong>権限の管理:</strong> 連携はGoogleアカウントの設定からいつでも解除可能です。</li>
+            </ul>
+        </div>
+        
+        <div style="margin-top: 20px;">
+            <a href="/authorize/" class="btn-auth">Googleアカウントでログイン</a>
+        </div>
+    {% else %}
+        <h2 style="font-size: 1.6rem; font-weight: 800; margin-bottom: 25px; margin-top:0;">
+            画像・ファイル・スクリーンショットをAIでスキャン
+        </h2>
+        
+        <div class="upload-section" id="drop-zone" onclick="document.getElementById('fileElem').click()">
+            <h3 class="upload-title" id="upload-instruction-title">ファイルをここにドロップ</h3>
+            <p class="upload-subtitle" id="upload-instruction-subtitle">またはクリックしてファイルを選択</p>
+            
+            <input type="file" id="fileElem" multiple accept="image/*,.pdf" style="display:none" onchange="handleFiles(this.files)">
+            <button class="btn-auth" style="font-size: 1rem; padding: 15px 40px;">ファイルを選択</button>
+        </div>
+    {% endif %}
+</main>
+
+<div class="modal-overlay" id="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 style="margin:0; font-weight: 800;">解析結果の確認</h3>
+            <button onclick="closeModal()" style="border:none; background:none; font-size:2.5rem; cursor:pointer; color:#ccc; line-height:1;">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div id="calendar"></div>
+            <div style="margin-top:35px; text-align: left;">
+                <h4 style="border-bottom: 2px solid #eee; padding-bottom:12px; font-weight: 800; font-size: 1rem;">抽出された予定リスト</h4>
+                <div id="event-list-container"></div>
+                <button class="btn-outline" style="margin-top:20px; color:var(--error); border-color: var(--error);" onclick="deleteSelected()">選択した項目を除外</button>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn-modal btn-cancel" onclick="closeModal()">キャンセルして戻る</button>
+            <button class="btn-modal btn-submit" onclick="syncToGoogle()">カレンダーへ同期</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const STORAGE_KEY = "smart_cal_v11_data";
+    let calendar = null;
+
+    // --- 修正：スマホ検知と文言切り替えロジック ---
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    const titleEl = document.getElementById('upload-instruction-title');
+    const subtitleEl = document.getElementById('upload-instruction-subtitle');
+
+    if (isMobile && titleEl && subtitleEl) {
+        // スマホの場合
+        titleEl.innerText = "予定表の写真を撮る / 写真を選ぶ";
+        subtitleEl.innerText = "シフト表やプリントのスクリーンショットも解析できます";
+    }
+
+    // --- ドラッグ＆ドロップの制御ロジック (PC用) ---
+    const dropZone = document.getElementById('drop-zone');
+    if (dropZone && !isMobile) { // PCの場合のみイベントを付与
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, e => {
+                e.preventDefault();
+                e.stopPropagation();
+            }, false);
+        });
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => dropZone.classList.add('dragover'), false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => dropZone.classList.remove('dragover'), false);
+        });
+
+        dropZone.addEventListener('drop', e => {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            handleFiles(files);
+        }, false);
+    }
+
+    window.onload = () => {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved && JSON.parse(saved).length > 0) openModal(JSON.parse(saved));
+    }
+
+    function handleFiles(files) {
+        if (files.length === 0) return;
+        document.getElementById('loader').style.display = 'flex';
+        const fd = new FormData();
+        for (let f of files) fd.append('files', f);
+        
+        fetch('/upload/', { method: 'POST', body: fd })
+        .then(r => r.json()).then(d => {
+            document.getElementById('loader').style.display = 'none';
+            if (d.status === 'success') {
+                const oldData = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+                const newData = [...oldData, ...d.events];
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(newData));
+                openModal(newData);
+            }
+        }).catch(() => {
+            document.getElementById('loader').style.display = 'none';
+            alert("解析中にエラーが発生しました。");
+        });
+    }
+
+    function openModal(events) {
+        document.getElementById('modal').style.display = 'flex';
+        const el = document.getElementById('calendar');
+        if (calendar) calendar.destroy();
+        calendar = new FullCalendar.Calendar(el, {
+            initialView: 'dayGridMonth', locale: 'ja',
+            headerToolbar: { left: 'prev', center: 'title', right: 'next' },
+            events: events,
+            contentHeight: 'auto',
+            eventTimeFormat: { hour: 'numeric', minute: '2-digit', hour12: false }
+        });
+        calendar.render();
+        renderGroupedList(events);
+        if (events.length > 0) calendar.gotoDate(events[0].start);
+    }
+
+    function renderGroupedList(events) {
+        const container = document.getElementById('event-list-container');
+        container.innerHTML = '';
+        const sortedEvents = [...events].sort((a, b) => new Date(a.start) - new Date(b.start));
+        const groups = {};
+        sortedEvents.forEach((ev) => {
+            const dateStr = new Date(ev.start).toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' });
+            if (!groups[dateStr]) groups[dateStr] = [];
+            groups[dateStr].push({...ev, originalIdx: events.indexOf(ev)});
+        });
+
+        for (const [date, items] of Object.entries(groups)) {
+            const dateId = `date-${Math.random().toString(36).substr(2, 9)}`;
+            const groupDiv = document.createElement('div');
+            groupDiv.className = 'date-group';
+            groupDiv.innerHTML = `
+                <div class="date-header">
+                    <input type="checkbox" class="date-check" onchange="toggleDateGroup('${dateId}', this.checked)">
+                    <span>${date}</span>
+                </div>
+                <div id="${dateId}">
+                    ${items.map(item => `
+                        <div class="event-item">
+                            <input type="checkbox" class="ev-check" data-idx="${item.originalIdx}">
+                            <span>${item.title}</span>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+            container.appendChild(groupDiv);
+        }
+    }
+
+    function toggleDateGroup(groupId, isChecked) {
+        const group = document.getElementById(groupId);
+        const checks = group.querySelectorAll('.ev-check');
+        checks.forEach(c => c.checked = isChecked);
+    }
+
+    function deleteSelected() {
+        const checks = document.querySelectorAll('.ev-check:checked');
+        if (checks.length === 0) return;
+        let evs = JSON.parse(localStorage.getItem(STORAGE_KEY));
+        const idxs = Array.from(checks).map(c => parseInt(c.dataset.idx)).sort((a,b) => b-a);
+        idxs.forEach(i => evs.splice(i, 1));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(evs));
+        openModal(evs);
+    }
+
+    function syncToGoogle() {
+        const evs = JSON.parse(localStorage.getItem(STORAGE_KEY));
+        if (!evs || evs.length === 0) return;
+        document.getElementById('loader').style.display = 'flex';
+        fetch('/register-events/', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ events: evs.map(e => ({
+                summary: e.title,
+                start_time: new Date(e.start).toISOString().split('.')[0] + "Z",
+                end_time: (e.end ? new Date(e.end) : new Date(e.start)).toISOString().split('.')[0] + "Z"
+            }))})
+        }).then(r => r.json()).then(d => {
+            document.getElementById('loader').style.display = 'none';
+            if (d.status === 'success') {
+                alert("カレンダー同期に成功しました。");
+                localStorage.removeItem(STORAGE_KEY);
+                location.reload();
+            }
+        });
+    }
+
+    function closeModal() { document.getElementById('modal').style.display = 'none'; }
+</script>
+</body>
+</html>
