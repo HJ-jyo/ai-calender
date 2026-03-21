@@ -19,8 +19,11 @@ class GeminiService:
             print("[DEBUG-PROBE] ❌ エラー: GEMINI_API_KEY がありません！")
             raise ValueError("API KEY MISSING")
 
+        # 警告が出る旧SDK(google.generativeai)でも動くように設定
         genai.configure(api_key=api_key)
-        model_name = 'gemini-1.5-flash'
+        
+        # 【重要】2026年3月現在の最新・無料・高速安定モデル
+        model_name = 'gemini-2.0-flash'
         
         try:
             model = genai.GenerativeModel(model_name)
@@ -31,8 +34,12 @@ class GeminiService:
             ※期間予定は1日ずつ分割すること。余計な文字は一切不要。
             """
             
-            response = model.generate_content([prompt, {'mime_type': content_type, 'data': file_data}])
-            print("[DEBUG-PROBE] ✅ Geminiから応答を受信！")
+            # JSON出力を強制するコンフィグを追加（これがないと挨拶などが混ざる場合があります）
+            response = model.generate_content(
+                [prompt, {'mime_type': content_type, 'data': file_data}],
+                generation_config={"response_mime_type": "application/json"}
+            )
+            print(f"[DEBUG-PROBE] ✅ Gemini({model_name})から応答を受信！")
             
             try:
                 raw_text = response.text
@@ -41,14 +48,11 @@ class GeminiService:
                 print(f"[DEBUG-PROBE] ❌ AIテキスト取得エラー: {ve}")
                 return []
 
-            # コピペエラーが起きにくい安全な文字除去ロジックに変更
             clean_text = raw_text.strip()
             clean_text = clean_text.replace("```json", "")
             clean_text = clean_text.replace("```", "")
             clean_text = clean_text.strip()
             
-            print(f"\n--- [DEBUG-PROBE: 掃除後のテキスト] ---\n{clean_text}\n---------------------------------------\n")
-
             try:
                 events = json.loads(clean_text)
                 print(f"[DEBUG-PROBE] ✅ JSONパース成功！ {len(events)} 件検出。")
