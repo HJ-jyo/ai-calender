@@ -12,7 +12,7 @@ class GeminiService:
     def analyze_schedule(file_data, content_type):
         print("\n" + "="*50)
         print("[DEBUG-PROBE] Gemini 解析スタート！")
-        print(f"[DEBUG-PROBE] 受け取ったファイル: MIME={content_type}, サイズ={len(file_data)} bytes")
+        print(f"[DEBUG-PROBE] MIME={content_type}")
         
         api_key = os.getenv('GEMINI_API_KEY')
         if not api_key:
@@ -28,34 +28,69 @@ class GeminiService:
             prompt = """
             画像から全ての予定を抽出し、以下のJSON配列形式のみで出力してください。
             [{"title": "予定", "start": "2026-03-24T09:00:00", "end": "2026-03-24T18:00:00", "location": "", "description": ""}]
-            ※期間予定は1日ずつ分割すること。余計な文字（```jsonなど）は一切不要。
+            ※期間予定は1日ずつ分割すること。余計な文字は一切不要。
             """
             
-            print(f"[DEBUG-PROBE] モデル({model_name}) にリクエストを送信中...")
             response = model.generate_content([prompt, {'mime_type': content_type, 'data': file_data}])
-            
             print("[DEBUG-PROBE] ✅ Geminiから応答を受信！")
-            
-            # 安全フィルター（セーフティ）に引っかかったか確認
-            if response.prompt_feedback:
-                print(f"[DEBUG-PROBE] ⚠️ セーフティフィードバック: {response.prompt_feedback}")
             
             try:
                 raw_text = response.text
-                print(f"\n--- [DEBUG-PROBE: AI 生データ (RAW TEXT) ここから] ---\n{raw_text}\n--- [DEBUG-PROBE: ここまで] ---\n")
+                print(f"\n--- [DEBUG-PROBE: AI 生データ (RAW TEXT)] ---\n{raw_text}\n--------------------------------------------\n")
             except ValueError as ve:
-                print(f"[DEBUG-PROBE] ❌ エラー: AIのテキストを取得不可（ブロックされた可能性）。詳細: {ve}")
-                if response.candidate:
-                    print(f"[DEBUG-PROBE] Candidate info: {response.candidate}")
+                print(f"[DEBUG-PROBE] ❌ AIテキスト取得エラー: {ve}")
                 return []
 
-            # どんなに汚いマークダウンで返してきても強制的に剥がすパーサー
+            # コピペエラーが起きにくい安全な文字除去ロジックに変更
             clean_text = raw_text.strip()
-            if clean_text.startswith('
-http://googleusercontent.com/immersive_entry_chip/0
-http://googleusercontent.com/immersive_entry_chip/1
-http://googleusercontent.com/immersive_entry_chip/2
+            clean_text = clean_text.replace("```json", "")
+            clean_text = clean_text.replace("```", "")
+            clean_text = clean_text.strip()
+            
+            print(f"\n--- [DEBUG-PROBE: 掃除後のテキスト] ---\n{clean_text}\n---------------------------------------\n")
 
-3. その状態で、スマホかPCから**アプリにアクセスし、画像を1枚アップロード**してください。
+            try:
+                events = json.loads(clean_text)
+                print(f"[DEBUG-PROBE] ✅ JSONパース成功！ {len(events)} 件検出。")
+            except json.JSONDecodeError as e:
+                print(f"[DEBUG-PROBE] ❌ JSONパース失敗！: {e}")
+                return []
 
-4. ターミナルに `[DEBUG-PROBE]` や `[DEBUG-VIEW]` から始まる文字がダーッと流れるはずです。
+            if not isinstance(events, list):
+                events = [events]
+
+            final_events = []
+            for ev in events:
+                try:
+                    start_dt = datetime.fromisoformat(ev['start'])
+                    end_dt = datetime.fromisoformat(ev['end'])
+                    
+                    if start_dt.date() < end_dt.date():
+                        current_date = start_dt.date()
+                        while current_date <= end_dt.date():
+                            new_start = datetime.combine(current_date, start_dt.time())
+                            new_end = datetime.combine(current_date, end_dt.time())
+                            final_events.append({
+                                "title": ev['title'],
+                                "start": new_start.isoformat(),
+                                "end": new_end.isoformat(),
+                                "location": ev.get('location', ''),
+                                "description": ev.get('description', '')
+                            })
+                            current_date += timedelta(days=1)
+                    else:
+                        final_events.append(ev)
+                except Exception as parse_error:
+                    print(f"[DEBUG-PROBE] 日付パースエラー: {parse_error}")
+                    final_events.append(ev)
+
+            print(f"[DEBUG-PROBE] 解析完了。{len(final_events)} 件を返します。")
+            print("="*50 + "\n")
+            return final_events
+
+        except Exception as e:
+            print("\n" + "="*50)
+            print("[DEBUG-PROBE] ❌ 致命的なエラー発生！")
+            print(traceback.format_exc())
+            print("="*50 + "\n")
+            return []
