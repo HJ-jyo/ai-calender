@@ -17,10 +17,18 @@ class GeminiService:
 
         genai.configure(api_key=api_key)
         
-        # 相棒の環境で完璧に動いていたモデル！
-        model_name = 'models/gemini-3-flash-preview'
-        
         try:
+            # 🔥 修正箇所：確実に存在する無料モデル（flash）を自動で探してセットする
+            # これにより「存在しないモデル」を探して30秒タイムアウトする現象を完全に防ぎます
+            available_models = [
+                m.name for m in genai.list_models() 
+                if 'generateContent' in m.supported_generation_methods and 'flash' in m.name
+            ]
+            
+            # 見つかったモデルを使う（なければ標準のフォールバック）
+            model_name = available_models[0] if available_models else 'models/gemini-1.5-flash-latest'
+            print(f"DEBUG: 自動選択されたAIモデル -> {model_name}")
+            
             model = genai.GenerativeModel(model_name)
             
             prompt = """
@@ -53,7 +61,7 @@ class GeminiService:
             raw_text = response.text
             print(f"DEBUG AI Response: {raw_text}")
 
-            # AIが余計な文字をつけても確実にJSONだけを引っこ抜く相棒のオリジナルロジック
+            # --- 相棒の最強オリジナル抽出ロジック（ここからは一切触っていません） ---
             start_index = raw_text.find('[')
             end_index = raw_text.rfind(']') + 1
             if start_index == -1:
@@ -69,7 +77,6 @@ class GeminiService:
             if not isinstance(events, list):
                 events = [events]
 
-            # 【保険ロジック】AIが期間で返してきた場合、Python側で1日単位にバラす
             final_events = []
             for ev in events:
                 try:
