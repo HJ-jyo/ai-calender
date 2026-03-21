@@ -19,11 +19,10 @@ class GeminiService:
             print("[DEBUG-PROBE] ❌ エラー: GEMINI_API_KEY がありません！")
             raise ValueError("API KEY MISSING")
 
-        # 警告が出る旧SDK(google.generativeai)でも動くように設定
         genai.configure(api_key=api_key)
         
-        # 【重要】2026年3月現在の最新・無料・高速安定モデル
-        model_name = 'gemini-2.0-flash'
+        # ライブラリ更新で確実に動く無料モデル
+        model_name = 'gemini-1.5-flash'
         
         try:
             model = genai.GenerativeModel(model_name)
@@ -34,7 +33,6 @@ class GeminiService:
             ※期間予定は1日ずつ分割すること。余計な文字は一切不要。
             """
             
-            # JSON出力を強制するコンフィグを追加（これがないと挨拶などが混ざる場合があります）
             response = model.generate_content(
                 [prompt, {'mime_type': content_type, 'data': file_data}],
                 generation_config={"response_mime_type": "application/json"}
