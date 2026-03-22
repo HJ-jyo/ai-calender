@@ -1,5 +1,4 @@
 import google.generativeai as genai
-from django.conf import settings
 import json
 import os
 import traceback
@@ -15,79 +14,73 @@ class GeminiService:
         if not api_key:
             raise ValueError("GEMINI_API_KEY が .env ファイルに見つかりません。")
 
+        # ライブラリの初期化
         genai.configure(api_key=api_key)
         
+        # 余計な検索ロジックを排除し、標準的なモデルを直接指定
+        model_name = 'gemini-1.5-flash'
+        
         try:
-            # 🔥 修正箇所：確実に存在する無料モデル（flash）を自動で探してセットする
-            # これにより「存在しないモデル」を探して30秒タイムアウトする現象を完全に防ぎます
-            available_models = [
-                m.name for m in genai.list_models() 
-                if 'generateContent' in m.supported_generation_methods and 'flash' in m.name
-            ]
-            
-            # 見つかったモデルを使う（なければ標準のフォールバック）
-            model_name = available_models[0] if available_models else 'models/gemini-1.5-flash-latest'
-            print(f"DEBUG: 自動選択されたAIモデル -> {model_name}")
-            
             model = genai.GenerativeModel(model_name)
             
+            # 相棒が求めていた柔軟で強力なプロンプト
             prompt = """
-            画像から全ての予定（授業、行事、期間予定）を抽出し、以下のJSON形式のリストで返してください。
+            提供された画像（シフト表、行事予定表、カレンダーなど）から全ての予定を抽出し、以下のJSON形式のリストで出力してください。
             
             【重要ルール】
-            1. 連日の予定（例：24〜28日）であっても、必ず **1日単位に切り分けて（バラして）** 出力してください。
-               （例：24日、25日、26日... と別々のオブジェクトにする）
-            2. 縦軸の時間と横軸の日付（月・日・曜日）を正確に組み合わせてください。
-            3. 現在は 2026年3月21日 です。画像内の日付には 2026年 を補完してください。
+            1. 「○日〜○日」のような期間予定が含まれている場合でも、必ず **1日単位に分割（バラして）** 出力してください。
+               （例：24日〜26日の予定は、24日、25日、26日の3つの独立したデータにする）
+            2. 時間の記載がない予定（終日予定など）は、開始を "09:00:00"、終了を "10:00:00" に設定してください。
+            3. 年の記載がない場合は、現在の年である「2026年」として処理してください。
+            4. 出力は純粋なJSONデータのみとし、Markdown表記（```json など）や説明文は一切含めないでください。
             
             【出力形式】
             [
                 {
                     "title": "予定の名称",
-                    "start": "2026-03-24T09:00",
-                    "end": "2026-03-24T18:00",
-                    "location": "",
-                    "description": ""
+                    "start": "2026-03-24T09:00:00",
+                    "end": "2026-03-24T18:00:00",
+                    "location": "場所（不明な場合は空文字）",
+                    "description": "備考や詳細（不明な場合は空文字）"
                 }
             ]
-            JSON以外の余計なテキストは一切含めないでください。秒数は不要です。
             """
 
+            # シンプルにAIへリクエスト（自動切り替えや強制オプションなどのギミックなし）
             response = model.generate_content([
                 prompt,
                 {'mime_type': content_type, 'data': file_data}
             ])
 
-            raw_text = response.text
+            raw_text = response.text.strip()
             print(f"DEBUG AI Response: {raw_text}")
 
-            # --- 相棒の最強オリジナル抽出ロジック（ここからは一切触っていません） ---
-            start_index = raw_text.find('[')
-            end_index = raw_text.rfind(']') + 1
-            if start_index == -1:
-                start_index = raw_text.find('{')
-                end_index = raw_text.rfind('}') + 1
-            
-            if start_index == -1:
-                raise ValueError(f"AIがJSONを返しませんでした。")
+            # JSON部分だけを安全に抽出するロジック
+            if raw_text.startswith('```json'):
+                raw_text = raw_text[7:]
+            if raw_text.startswith('```'):
+                raw_text = raw_text[3:]
+            if raw_text.endswith('```'):
+                raw_text = raw_text[:-3]
+            raw_text = raw_text.strip()
 
-            json_text = raw_text[start_index:end_index]
-            events = json.loads(json_text)
+            events = json.loads(raw_text)
             
             if not isinstance(events, list):
                 events = [events]
 
+            # 期間予定を1日ずつに分解する保険ロジック
             final_events = []
             for ev in events:
                 try:
                     start_dt = datetime.fromisoformat(ev['start'])
                     end_dt = datetime.fromisoformat(ev['end'])
                     
-                    if start_dt.date() != end_dt.date():
-                        current_date = start_dt.date()
-                        while current_date <= end_dt.date():
-                            new_start = datetime.combine(current_date, start_dt.time())
-                            new_end = datetime.combine(current_date, end_dt.time())
+                    if start_dt.date() < end_dt.date():
+                        curr = start_dt.date()
+                        while curr <= end_dt.date():
+                            new_start = datetime.combine(curr, start_dt.time())
+                            new_end = datetime.combine(curr, end_dt.time())
                             
                             final_events.append({
                                 "title": ev['title'],
@@ -96,11 +89,11 @@ class GeminiService:
                                 "location": ev.get('location', ''),
                                 "description": ev.get('description', '')
                             })
-                            current_date += timedelta(days=1)
+                            curr += timedelta(days=1)
                     else:
                         final_events.append(ev)
                 except Exception as parse_error:
-                    print(f"予定パースエラー: {parse_error}, データ: {ev}")
+                    print(f"日付パースエラー: {parse_error}")
                     final_events.append(ev)
 
             return final_events
