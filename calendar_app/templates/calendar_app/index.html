@@ -104,7 +104,13 @@
     {% endif %}
 </header>
 
-<div class="loader" id="loader"><div class="spinner"></div><p style="margin-top:15px; font-weight: 600;">解析中</p></div>
+<div class="loader" id="loader">
+    <div class="spinner"></div>
+    <p style="margin-top:15px; font-weight: 600; font-size: 1.1rem;">AIが予定を解析中...</p>
+    <p style="margin-top:8px; font-size: 0.9rem; color: #666; font-weight: bold; text-align: center;">
+        ※高画質な画像や文章形式の場合、<br>読み込みに数分かかる場合があります。<br>画面を閉じずにお待ちください。
+    </p>
+</div>
 
 <main class="container">
     {% if not is_authenticated %}
